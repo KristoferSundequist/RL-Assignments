@@ -1,0 +1,556 @@
+<html>
+
+<head>
+</head>
+
+<body>
+    <canvas id="myCanvas" width="300" height="300" style="border:1px solid #000000;"></canvas>
+    <script>
+    
+    
+        /////////////
+        /// Actor ///
+        /////////////
+        
+        function get_random_vec(dim,variance){
+            var v = [];
+            for(var i = 0; i < dim; i++){
+                v.push((2*Math.random()-1)*variance);
+            }
+        return v;
+        }
+
+        function get_random_matrix(rows,cols){
+            
+            var m = [];
+            for(var i = 0; i < rows; i++){
+                m.push(get_random_vec(cols,1));
+            }
+            return m;
+        }
+
+        function nn_soft(_inputs,_hidden,_outputs){
+            /***************
+            ** Set weights
+            ***************/
+            this.inputs = _inputs;
+            this.hidden = _hidden;
+            this.outputs = _outputs;
+
+            this.W1 = get_random_matrix(this.inputs,this.hidden);
+            this.W2 = get_random_matrix(this.hidden,this.outputs);
+
+            /***************
+            ** Softmax
+            ***************/
+            this.softmax = function(vec){
+                var sum = 0;
+                for(var i = 0; i < vec.length; i++){
+                    sum += Math.exp(vec[i]);
+                }
+                var sm = new Array(vec.length).fill(0);
+                for(var i = 0; i < sm.length; i++){
+                    sm[i] = Math.exp(vec[i])/sum; 
+                }
+                return sm;
+            }
+
+
+            /***************
+            ** Forward pass
+            ***************/
+
+            this.forward = function(data){
+               /* get first z */
+               var first_z = [];
+               for(var example = 0; example < data.length; example++){
+                  var cur_z = new Array(this.hidden).fill(0);
+                  for(var feature = 0; feature < data[example].length; feature++){
+                     for(var weight = 0; weight < this.W1[feature].length; weight++){
+                        cur_z[weight] += data[example][feature]*this.W1[feature][weight];
+                     }
+                  }
+                  first_z.push(cur_z);
+               }
+
+               /* apply relu */
+               var first_y = [];
+               for(var example = 0; example < first_z.length; example++){
+                  var cur_y = new Array(this.hidden).fill(0);
+                  for(var z = 0; z < first_z[example].length; z++){
+                     if(first_z[example][z] > 0){
+                        cur_y[z] = first_z[example][z];
+                     }
+                  }
+                  first_y.push(cur_y);
+               }
+
+               /* get second z */
+               var second_z = [];
+               for(var example = 0; example < first_y.length; example++){
+                  var cur_z = new Array(this.outputs).fill(0);
+                  for(var feature = 0; feature < first_y[example].length; feature++){
+                     for(var weight = 0; weight < this.W2[feature].length; weight++){
+                        cur_z[weight] += first_y[example][feature]*this.W2[feature][weight];
+                     }
+                  }
+                  second_z.push(cur_z);
+               }
+               
+               
+               var output = [];
+               for (var example = 0; example < second_z.length; example++){
+                   output.push(this.softmax(second_z[example]));
+               }
+               return [first_y, output];
+            }
+
+            /*******
+            * Evaluation
+            ********/
+            /*
+            this.loss = function(data,label){
+                output = this.forward(data)[1];
+               
+               // get errors
+               var error = [];
+               for(var example = 0; example < output.length; example++){
+                  var cur_error = new Array(this.outputs).fill(0);
+                  for(var output_i = 0; output_i < output[example].length; output_i++){
+                     cur_error[output_i] = output[example][output_i] - label[example][output_i];
+                  }
+                  error.push(cur_error);
+               }
+
+               // PRINT LOSS
+               var loss = 0;
+               for(var i = 0; i < n; i++){
+                  for(var o = 0; o < this.outputs; o++){
+                     loss -= label[i][o]*Math.log(output[i][o]);
+                  }
+               }
+               return loss/data.length;
+            }
+            */
+            
+            /***************
+            ** Train
+            ***************/
+            this.train = function(data,labels,delta,epochs, eps){
+
+                for(var epoch = 0; epoch < epochs; epoch++){
+               
+                   forward_vals = this.forward(data);
+                   first_y = forward_vals[0];
+                   output = forward_vals[1];
+                   
+                   /* get errors */
+                   var error = [];
+                   for(var example = 0; example < output.length; example++){
+                      var cur_error = new Array(this.outputs).fill(0);
+                      for(var output_i = 0; output_i < output[example].length; output_i++){
+                         cur_error[output_i] = (output[example][output_i] - labels[example][output_i])*delta[example];
+                      }
+                      error.push(cur_error);
+                   }
+
+                   /*
+                   // PRINT LOSS 
+                   if(epoch % 100 == 0){
+                      console.log("loss: " + this.loss(X,y));
+                   }
+                   */
+                   var delta2 = error; //GE/Gz
+
+
+                   /* this.hidden error */
+                   var error1 = []; //delta2 dot this.W2
+                   for(var example = 0; example < delta2.length; example++){
+                      var cur_example_error = new Array(this.hidden).fill(0);
+                      for(var neuron = 0; neuron < this.hidden; neuron++){
+                         for(var weight = 0; weight < this.W2[neuron].length; weight++){
+                            cur_example_error[neuron] += delta2[example][weight]*this.W2[neuron][weight];
+                         }
+                      }
+                      error1.push(cur_example_error);
+                   }
+                   
+                    
+                   /* this.hidden z_error */
+                   var delta1 = [];
+                   for(var example = 0; example < delta2.length; example++){
+                      var cur_delta1 = [];
+                      for(var z = 0; z < this.hidden; z++){
+                         if(first_y[example][z] > 0){
+                            cur_delta1.push(error1[example][z]);
+                         }else{
+                            cur_delta1.push(0);
+                         }
+                      }
+                      delta1.push(cur_delta1);
+                   }
+
+                   /* update this.W1 - input dot delta1*/
+                   for(var example = 0; example < data.length; example++){
+                      for(var feature = 0; feature < this.W1.length; feature++){
+                         for(var weight = 0; weight < this.hidden; weight++){
+                            this.W1[feature][weight] -= eps*(1/data.length)*data[example][feature]*delta1[example][weight];
+                         }
+                      }
+                   }
+
+                   /* update this.W2 - first_y dot delta2*/
+                   for(var example = 0; example < data.length; example++){
+                      for(var feature = 0; feature < this.W2.length; feature++){
+                         for(var weight = 0; weight < this.outputs; weight++){
+                            this.W2[feature][weight] -= eps*(1/data.length)*first_y[example][feature]*delta2[example][weight];
+                         }
+                      }
+                   }
+                }
+            }
+        }
+
+        /////////////////
+        /// Critic //////
+        /////////////////
+        
+        function nn_linear(_inputs,_hidden){
+            this.inputs = _inputs;
+            this.hidden = _hidden;
+            
+            this.W1 = get_random_matrix(this.inputs,this.hidden)
+            this.W2 = get_random_matrix(this.hidden,1)
+
+            this.forward = function(data){
+                /* get first z */
+               var first_z = [];
+               for(var example = 0; example < data.length; example++){
+                  var cur_z = new Array(this.hidden).fill(0);
+                  for(var feature = 0; feature < data[example].length; feature++){
+                     for(var weight = 0; weight < this.W1[feature].length; weight++){
+                        cur_z[weight] += data[example][feature]*this.W1[feature][weight];
+                     }
+                  }
+                  first_z.push(cur_z);
+               }
+
+               /* apply relu */
+               var first_y = [];
+               for(var example = 0; example < first_z.length; example++){
+                  var cur_y = new Array(this.hidden).fill(0);
+                  for(var z = 0; z < first_z[example].length; z++){
+                     if(first_z[example][z] > 0){
+                        cur_y[z] = first_z[example][z];
+                     }
+                  }
+                  first_y.push(cur_y);
+               }
+
+               /* get second z */
+               var second_z = [];
+               for(var example = 0; example < first_y.length; example++){
+                  var cur_z = 0;
+                  for(var feature = 0; feature < first_y[example].length; feature++){
+                     cur_z += first_y[example][feature]*this.W2[feature];
+                  }
+                  second_z.push(cur_z);
+               }
+               
+               return [first_y,second_z];
+            }
+            
+            this.train = function(data,labels,epochs, eps){
+
+               for(var epoch = 0; epoch < epochs; epoch++){
+
+                fo = this.forward(data);
+                first_y = fo[0];
+                second_z = fo[1];
+               
+               /* get errors */
+               var error = [];
+               for(var example = 0; example < second_z.length; example++){
+                  error.push(second_z[example] - labels[example]);
+               }
+
+               /*
+               // PRINT LOSS
+               if(epoch % 10 == 0){
+                  var loss = 0;
+                  for(var i = 0; i < n; i++){
+                     loss += error[i];
+                  }
+                  console.log("epoch " + epoch + " loss: " + loss/data.length);
+               }
+               */
+               
+               var delta2 = error; //linear output
+
+               /* hidden error */
+               var error1 = []; //delta2 dot this.W2
+               for(var example = 0; example < delta2.length; example++){
+                  var cur_example_error = [];
+                  for(var neuron = 0; neuron < this.hidden; neuron++){
+                     cur_example_error.push(delta2[example]*this.W2[neuron]);
+                  }
+                  error1.push(cur_example_error);
+               }
+
+               /* hidden z_error */
+               var delta1 = [];
+               for(var example = 0; example < delta2.length; example++){
+                  var cur_delta1 = [];
+                  for(var z = 0; z < this.hidden; z++){
+                     if(first_y[example][z] > 0){
+                        cur_delta1.push(error1[example][z]);
+                     }else{
+                        cur_delta1.push(0);
+                     }
+                  }
+                  delta1.push(cur_delta1);
+               }
+
+               
+               /* update this.W1 - input dot delta1*/
+               for(var example = 0; example < delta1.length; example++){
+                  for(var feature = 0; feature < this.W1.length; feature++){
+                     for(var weight = 0; weight < this.hidden; weight++){
+                        this.W1[feature][weight] -= eps*(1/data.length)*data[example][feature]*delta1[example][weight];
+                     }
+                  }
+               }
+
+               /* update this.W2 - first_y dot delta2*/
+               for(var example = 0; example < delta2.length; example++){
+                  for(var weight = 0; weight < this.hidden; weight++){
+                     this.W2[weight] -= eps*(1/data.length)*first_y[example][weight]*delta2[example];
+                  }
+               }
+               }
+            }
+        }
+        
+        /////////////////
+        /// ENV /////////
+        ////////////////
+    
+    
+        const canvas = document.getElementById('myCanvas');
+        const context = canvas.getContext('2d');
+
+        function clearCanvas() {
+            context.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function drawcircle(x, y, s, color) {
+            context.beginPath();
+            context.arc(x, y, s, 0, 2 * Math.PI, false);
+            context.fillStyle = color;
+            context.fill();
+            context.lineWidth = 0;
+            context.strokeStyle = '#003300';
+            context.stroke();
+        }
+
+        function target(_x,_y,_size){
+            this.x = _x;
+            this.y = _y;
+            this.size = _size;
+            
+            this.update = function(){
+                this.x = Math.floor(Math.random()*canvas.width);
+                this.y = Math.floor(Math.random()*canvas.height);
+            }
+            
+            this.render = function(){
+                drawcircle(this.x, this.y, this.size, 'red');
+            }
+        }
+        
+        function slider(_x,_y,_dx,_dy,_size){
+            this.x = _x;
+            this.y = _y;
+            this.dx = _dx;
+            this.dy = _dy;
+            this.size = _size;
+            
+            this.reset = function(){
+                this.x = Math.floor(Math.random()*canvas.width);
+                this.y = Math.floor(Math.random()*canvas.height);
+                this.dx = 10;
+                this.dy = 10;
+            }
+            
+            this.update = function(){
+                if(this.x + this.size >= canvas.width){
+                    this.x = canvas.width - this.size;
+                    this.dx *= -1;
+                }
+                if(this.x - this.size <= 0){
+                    this.x = this.size;
+                    this.dx *= -1;
+                }
+                if(this.y + this.size >= canvas.height){
+                    this.y = canvas.height - this.size;
+                    this.dy *= -1;
+                }
+                if(this.y - this.size <= 0){
+                    this.y = this.size;
+                    this.dy *= -1;
+                }
+            
+                this.x += this.dx;
+                this.y += this.dy;
+                this.dx*=0.99;
+                this.dy*=0.99;
+            }
+            
+            this.push = function(dir){
+                switch(dir){
+                    case 2: //right
+                        this.dx += 1;
+                        break;
+                    case 0: //left
+                        this.dx -= 1;
+                        break;
+                    case 1: //up
+                        this.dy -= 1;
+                        break;
+                    case 3: //down
+                        this.dy += 1;
+                        break;
+                    default: //nothing
+                        break;
+                }
+            }
+            
+            this.render = function(){
+                drawcircle(this.x, this.y, this.size, 'black');
+            }
+        }
+        
+        function intersect(ax, ay, as, bx, by, bs) {
+            if (as + bs > Math.sqrt(Math.pow(ax - bx, 2) + Math.pow(ay - by, 2))) {
+                return true;
+            }
+            return false;
+        }
+        
+        var slider1 = new slider(200,100, -2, -5,10);
+        var target1 = new target(200,50,20);
+        var policy = new nn_soft(6,40,5);
+        var critic = new nn_linear(6,40);
+        
+        
+        function get_state(){
+            return [slider1.x/canvas.width, slider1.y/canvas.height, slider1.dx/10, slider1.dy/10, target1.x/canvas.width, target1.y/canvas.height];
+        }
+        
+        function step(action){
+            slider1.push(action);
+            slider1.update();
+            var reward = 0;
+            if(intersect(slider1.x, slider1.y, slider1.size, target1.x, target1.y, target1.size)){
+                target1.update();
+                reward = 10;
+                console.log("got it");
+            }
+            if(Math.random() < 0.001){
+                target1.update();
+            }
+            //console.log("reward: " + reward + ", action " + action);
+            return [reward, get_state()];
+        }
+        
+        function sample_from_categorical(categorical){
+            var acc = 0;
+            var rand = Math.random();
+            for(var i = 0; i < categorical.length; i++){
+                acc += categorical[i];
+                if(rand <= acc){
+                    return i;
+                }
+            }
+        }
+        
+        function pi(){
+            cur_state = get_state();
+            f = policy.forward([cur_state]);
+            action = sample_from_categorical(f[1][0]);
+            console.log(f[1][0]);
+            console.log(action);
+            console.log(critic.forward([cur_state])[1][0]);
+            vals = step(action);
+        }
+        
+        
+        
+        function render(){
+            clearCanvas();
+            slider1.render();
+            target1.render();
+        }
+        
+        function test(){
+            function loop(){
+                cur_state = get_state();
+                f = policy.forward([cur_state]);
+                action = sample_from_categorical(f[1][0]);
+                new_stuff = step(action);
+                render();
+                if(new_stuff[0] == 10){
+                    clearInterval(iid);
+                }
+            }
+            var fps = 20;
+            iid = setInterval(loop, 1000 / fps);
+        }
+        
+        function learnn(num_steps,discount,eps,verbose){
+            var cur_state = get_state();
+            for(var s = 0; s < num_steps; s++){
+                f = policy.forward([cur_state]);
+                action = sample_from_categorical(f[1][0]);
+                //explore 5%
+                if(Math.random() < 0.05){
+                    action = Math.floor(Math.random()*5)
+                }
+                new_reward_state = step(action);
+
+                reward = new_reward_state[0];
+                new_state = new_reward_state[1];
+                value_cur = critic.forward([cur_state])[1][0];
+                value_next = critic.forward([new_state])[1][0];
+                delta = reward + discount*value_next - value_cur;
+                critic.train([cur_state], [reward + discount*value_next], 1,eps);
+                label = new Array(5).fill(0);
+                label[action] = 1;
+                policy.train([cur_state], [label], [delta], 1,eps);
+                if(verbose){
+                console.log("old " + f[1][0]);
+                console.log("updated " + policy.forward([cur_state])[1][0]);
+                console.log("action " + action);
+                console.log("delta " + delta);
+                console.log("cur v " + value_cur);
+                console.log("next v " + value_next);
+                    
+                }
+                
+                cur_state = new_state;
+            }
+        //learnn(100000,1,0.000001,false)
+        }
+        
+    
+    </script>
+    <button onclick="step(2);render();">right</button>
+    <button onclick="step(0);render();">left</button>
+    <button onclick="step(1);render();">up</button>
+    <button onclick="step(3);render();">down</button>
+    <button onclick="step(4);render();">nothing</button>
+    <button onclick="pi();render();">agent</button>
+    <button onclick="target1.update();render();">reset target</button>
+</body>
+
+</html>
