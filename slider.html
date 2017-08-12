@@ -136,13 +136,13 @@
             /***************
             ** Train
             ***************/
-            this.train = function(data,labels,delta,epochs, eps){
+            this.train = function(first_y, output, data,labels,delta,epochs, eps){
 
                 for(var epoch = 0; epoch < epochs; epoch++){
                
-                   forward_vals = this.forward(data);
-                   first_y = forward_vals[0];
-                   output = forward_vals[1];
+                   //forward_vals = this.forward(data);
+                   //first_y = forward_vals[0];
+                   //output = forward_vals[1];
                    
                    /* get errors */
                    var error = [];
@@ -260,13 +260,13 @@
                return [first_y,second_z];
             }
             
-            this.train = function(data,labels,epochs, eps){
+            this.train = function(first_y, second_z, data,labels,epochs, eps){
 
                for(var epoch = 0; epoch < epochs; epoch++){
 
-                fo = this.forward(data);
-                first_y = fo[0];
-                second_z = fo[1];
+                //fo = this.forward(data);
+                //first_y = fo[0];
+                //second_z = fo[1];
                
                /* get errors */
                var error = [];
@@ -378,8 +378,8 @@
             this.reset = function(){
                 this.x = Math.floor(Math.random()*canvas.width);
                 this.y = Math.floor(Math.random()*canvas.height);
-                this.dx = 10;
-                this.dy = 10;
+                this.dx =  10-Math.floor(Math.random()*20);
+                this.dy = 10-Math.floor(Math.random()*20);
             }
             
             this.update = function(){
@@ -450,15 +450,18 @@
         function step(action){
             slider1.push(action);
             slider1.update();
-            var reward = 0;
+            var reward = 1/Math.sqrt((slider1.x - target1.x)**2 + (slider1.y - target1.y)**2);
+            //if(action <= 3){
+             //   reward += -1;
+            //}
             if(intersect(slider1.x, slider1.y, slider1.size, target1.x, target1.y, target1.size)){
                 target1.update();
                 reward = 10;
                 console.log("got it");
             }
-            if(Math.random() < 0.001){
-                target1.update();
-            }
+            //if(Math.random() < 0.001){
+             //   target1.update();
+            //}
             //console.log("reward: " + reward + ", action " + action);
             return [reward, get_state()];
         }
@@ -479,9 +482,22 @@
             f = policy.forward([cur_state]);
             action = sample_from_categorical(f[1][0]);
             console.log(f[1][0]);
-            console.log(action);
+            
+            //print action
+            if(action == 0){
+                console.log("left");
+            }else if(action == 1){
+                console.log("up");
+            }else if(action == 2){
+                console.log("right");
+            }else if(action == 3){
+                console.log("down");
+            }else{
+                console.log("nothing");
+            }   
             console.log(critic.forward([cur_state])[1][0]);
             vals = step(action);
+            console.log("reward: " + vals[0]);
         }
         
         
@@ -507,42 +523,89 @@
             iid = setInterval(loop, 1000 / fps);
         }
         
-        function learnn(num_steps,discount,eps,verbose){
+        function learnn(num_steps,batch_size,discount,eps,epochs,verbose){
             var cur_state = get_state();
+            var total_reward = 0;
+            var acc_states = [];
+            var critic_labels = [];
+            var policy_labels = [];
+            var policy_deltas = [];
+            var pf1 = [];
+            var pf2 = [];
+            var cf1 = [];
+            var cf2 = [];
             for(var s = 0; s < num_steps; s++){
                 f = policy.forward([cur_state]);
+                pf1.push(f[0][0]);
+                pf2.push(f[1][0]);
                 action = sample_from_categorical(f[1][0]);
                 //explore 5%
-                if(Math.random() < 0.05){
+                if(Math.random() < 0.1){
                     action = Math.floor(Math.random()*5)
                 }
                 new_reward_state = step(action);
 
                 reward = new_reward_state[0];
+                total_reward += reward;
                 new_state = new_reward_state[1];
-                value_cur = critic.forward([cur_state])[1][0];
+                critic_forward = critic.forward([cur_state]);
+                cf1.push(critic_forward[0][0]);
+                cf2.push(critic_forward[1][0]);
+                value_cur = critic_forward[1][0];
                 value_next = critic.forward([new_state])[1][0];
-                delta = reward + discount*value_next - value_cur;
-                critic.train([cur_state], [reward + discount*value_next], 1,eps);
-                label = new Array(5).fill(0);
-                label[action] = 1;
-                policy.train([cur_state], [label], [delta], 1,eps);
+                td_target = reward + discount*value_next;
+                td_error = td_target - value_cur;
+                action_onehot = new Array(5).fill(0);
+                action_onehot[action] = 1;
+                //critic.train([cur_state], [reward + discount*value_next], 1,eps);
+                acc_states.push(cur_state);
+                critic_labels.push(td_target);
+                policy_labels.push(action_onehot);
+                policy_deltas.push(td_error);
+                
+                if(s % batch_size == 0 && s != 0){
+                    critic.train(cf1,cf2,acc_states, critic_labels, epochs,eps);
+                    policy.train(pf1,pf2,acc_states, policy_labels, policy_deltas, epochs,eps);
+                    acc_states = [];
+                    critic_labels = [];
+                    policy_labels = [];
+                    policy_deltas = [];
+                    pf1 = [];
+                    pf2 = [];
+                    cf1 = [];
+                    cf2 = [];
+                    slider1.reset();
+                    target1.update();
+                }
+                
+                //policy.train([cur_state], [label], [delta], 1,eps);
                 if(verbose){
                 console.log("old " + f[1][0]);
                 console.log("updated " + policy.forward([cur_state])[1][0]);
                 console.log("action " + action);
-                console.log("delta " + delta);
+                console.log("delta " + td_error);
                 console.log("cur v " + value_cur);
                 console.log("next v " + value_next);
-                    
+                  
                 }
                 
                 cur_state = new_state;
             }
-        //learnn(100000,1,0.000001,false)
+            console.log("reward/step: " + total_reward/num_steps);
+        //learnn(1000000,100,1,0.0001,2,false)
         }
         
-    
+        function random_policy(n,batch_size){
+            var total_r = 0;
+            for(var i = 0; i < n; i++){
+                total_r += step(Math.floor(Math.random()*5))[0];
+                if(i % batch_size == 0 && i != 0){
+                    slider1.reset();
+                    target1.update();
+                }
+            }
+            console.log("r/steps: " + total_r/n);
+        }
     </script>
     <button onclick="step(2);render();">right</button>
     <button onclick="step(0);render();">left</button>
